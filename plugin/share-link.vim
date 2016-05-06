@@ -2,7 +2,7 @@ let s:REPOSITORY_NAME_PLACEHOLDER = '<REPOSITORY_NAME>'
 let s:PATH_TO_FILE_PLACEHOLDER = '<PATH_TO_FILE>'
 let s:LINE_1_PLACEHOLDER = '<LINE1>'
 let s:LINE_2_PLACEHOLDER = '<LINE2>'
-let g:vim_share_link_template = 'https://example.com/repos/<REPOSITORY_NAME>/browse/<PATH_TO_FILE><IFLINES>#<LINE1>-<LINE2></IFLINES>'
+let g:vim_share_link_template = 'https://www.example.com/repos/<REPOSITORY_NAME>/browse/<PATH_TO_FILE><IFLINES>#<LINE1>-<LINE2></IFLINES>'
 
 function! s:getVisualSelection()
     let [lnum1, col1] = getpos("'<")[1:2]
@@ -23,15 +23,14 @@ function! s:findRepositoryRoot()
 
     while !foundRoot
         let pathToGitParent = expand(expandExpr)
-        let pathToGit = pathToGitParent . "/.git"
-        if isdirectory(pathToGit) || filereadable(pathToGit)
-            " echom "Found git repo: " . expand(expandExpr)
+        if isdirectory(pathToGitParent . "/.git") || filereadable(pathToGitParent . "/.git")
             let foundRoot = 1
         elseif expand(expandExpr) == "/"
+            " Recursed all the way up and found no repo
             let foundRoot = 0
             break
         else
-            " echom "Not a git repo: " . pathToGit
+            " Keep recursing up
             let expandExpr .= ":h"
         endif
     endwhile
@@ -42,39 +41,43 @@ function! s:findRepositoryRoot()
         " Remove the leading / from the relative path, if it exists (it
         " almost definitely will)
         let workspaceInfo.relativePathToFile = substitute(workspaceInfo.relativePathToFile, '\v^/', "", "")
-        let workspaceInfo.absolutePathToGit = pathToGit
-        let workspaceInfo.absolutePathToGitParent = pathToGitParent
+        let workspaceInfo.absolutePathToGitParent = system('git rev-parse --show-toplevel')
+        let workspaceInfo.absolutePathToGit = workspaceInfo.absolutePathToGitParent . "/.git"
         let workspaceInfo.isGitRepo = 1
         let gitConfigLines = []
 
-        if !isdirectory(workspaceInfo.absolutePathToGit) && filereadable(workspaceInfo.absolutePathToGit)
-            " Assert: .git is not a directory. Possibly a git submodule.
-            let gitModuleConfigLines = readfile(workspaceInfo.absolutePathToGit)
-            for line in gitModuleConfigLines
-                if line =~ '\v^gitdir:'
-                    " Update the absolute path to git variable to reflect
-                    " where the git repo actually is.
-                    let workspaceInfo.absolutePathToGit = workspaceInfo.absolutePathToGitParent . "/" . get(matchlist(line, '\v^gitdir:\s*(.*)$'), 1, "")
-                endif
-            endfor
-        endif
 
-        if isdirectory(workspaceInfo.absolutePathToGit) && filereadable(workspaceInfo.absolutePathToGit . "/config")
-            " Assert: a regular git repo
-            let gitConfigLines = readfile(workspaceInfo.absolutePathToGit . "/config")
+        " if !isdirectory(workspaceInfo.absolutePathToGit) && filereadable(workspaceInfo.absolutePathToGit)
+        "     " Assert: .git is not a directory. Possibly a git submodule.
+        "     let gitModuleConfigLines = readfile(workspaceInfo.absolutePathToGit)
+        "     for line in gitModuleConfigLines
+        "         if line =~ '\v^gitdir:'
+        "             " Update the absolute path to git variable to reflect
+        "             " where the git repo actually is.
+        "             let workspaceInfo.absolutePathToGit = workspaceInfo.absolutePathToGitParent . "/" . get(matchlist(line, '\v^gitdir:\s*(.*)$'), 1, "")
+        "         endif
+        "     endfor
+        " endif
 
-            for line in gitConfigLines
-                if line =~ '\vurl.?\='
-                    let workspaceInfo.repositoryName = get(matchlist(line, '\v([^/]+).git$'), 1, "")
-                    let workspaceInfo.isRemoteRepository = 1
-                endif
-            endfor
+        let remoteOriginUrl = system('git config --get remote.origin.url')
+        let workspaceInfo.repositoryName = get(matchlist(remoteOriginUrl, '\v([^/]+).git$'), 1, "")
+        let workspaceInfo.isRemoteRepository = 1
 
-        else
-            echohl Error
-            echo "Could not read the git config at location " . workspaceInfo.absolutePathToGit . "/config"
-            echohl NONE
-        endif
+        " if isdirectory(workspaceInfo.absolutePathToGit) && filereadable(workspaceInfo.absolutePathToGit . "/config")
+        "     " Assert: a regular git repo
+        "     let gitConfigLines = readfile(workspaceInfo.absolutePathToGit . "/config")
+
+        "     for line in gitConfigLines
+        "         if line =~ '\vurl.?\='
+        "             let workspaceInfo.repositoryName = get(matchlist(line, '\v([^/]+).git$'), 1, "")
+        "             let workspaceInfo.isRemoteRepository = 1
+        "         endif
+        "     endfor
+        " else
+        "     echohl Error
+        "     echo "Could not read the git config at location " . workspaceInfo.absolutePathToGit . "/config"
+        "     echohl NONE
+        " endif
     endif
 
     return workspaceInfo
@@ -125,7 +128,7 @@ function! s:generateCodeBrowserBlobUrl(startLine, endLine)
     let url = substitute(url, s:PATH_TO_FILE_PLACEHOLDER , info.relativePathToFile, "")
 
     echohl Error
-    " call s:printDictionary(info)
+    call s:printDictionary(info)
     echo "\n" . url
     echohl NONE
 endfunction

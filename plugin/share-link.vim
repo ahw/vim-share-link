@@ -22,14 +22,16 @@ function! s:findRepositoryRoot()
     let workspaceInfo.absolutePathToDir = expand("%:p:h")
 
     while !foundRoot
-        let pathToGitParent = expand(expandExpr)
-        if isdirectory(pathToGitParent . "/.git") || filereadable(pathToGitParent . "/.git")
+        let pathToGit = expand(expandExpr) . "/.git"
+        if isdirectory(pathToGit) || filereadable(pathToGit)
+            echom "Found git root at " . pathToGit
             let foundRoot = 1
         elseif expand(expandExpr) == "/"
             " Recursed all the way up and found no repo
             let foundRoot = 0
             break
         else
+            echom "Path " . pathToGit . " is not a git repo. Trying upwards..."
             " Keep recursing up
             let expandExpr .= ":h"
         endif
@@ -37,12 +39,11 @@ function! s:findRepositoryRoot()
 
     if foundRoot
         " Path to file relative to git root
-        let workspaceInfo.relativePathToFile = substitute(workspaceInfo.absolutePathToFile, pathToGitParent, "", "")
-        " Remove the leading / from the relative path, if it exists (it
-        " almost definitely will)
-        let workspaceInfo.relativePathToFile = substitute(workspaceInfo.relativePathToFile, '\v^/', "", "")
-        let workspaceInfo.absolutePathToGitParent = system('git rev-parse --show-toplevel')
-        let workspaceInfo.absolutePathToGit = workspaceInfo.absolutePathToGitParent . "/.git"
+        let workspaceInfo.relativePathToFile = substitute(workspaceInfo.absolutePathToFile, substitute(pathToGit, '\v.git$', "", ""), "", "")
+        " " Remove the leading / from the relative path, if it exists (it almost definitely will)
+        " let workspaceInfo.relativePathToFile = substitute(workspaceInfo.relativePathToFile, '\v^/', "", "")
+        let workspaceInfo.absolutePathToGitParent = system('git --git-dir ' . pathToGit .  ' rev-parse --show-toplevel')
+        " let workspaceInfo.absolutePathToGit = workspaceInfo.absolutePathToGitParent . "/.git"
         let workspaceInfo.isGitRepo = 1
         let gitConfigLines = []
 
@@ -59,8 +60,10 @@ function! s:findRepositoryRoot()
         "     endfor
         " endif
 
-        let remoteOriginUrl = system('git config --get remote.origin.url')
-        let workspaceInfo.repositoryName = get(matchlist(remoteOriginUrl, '\v([^/]+).git$'), 1, "")
+        let remoteOriginUrl = system('git --git-dir ' . pathToGit . ' config --get remote.origin.url')
+        " Match against zero or more \W characters at the end since this
+        " command will print a newline after the remote origin url
+        let workspaceInfo.repositoryName = get(matchlist(remoteOriginUrl, '\v([^/]+).git\W*$'), 1, "")
         let workspaceInfo.isRemoteRepository = 1
 
         " if isdirectory(workspaceInfo.absolutePathToGit) && filereadable(workspaceInfo.absolutePathToGit . "/config")

@@ -2,7 +2,12 @@ let s:REPOSITORY_NAME_PLACEHOLDER = '<REPOSITORY_NAME>'
 let s:PATH_TO_FILE_PLACEHOLDER = '<PATH_TO_FILE>'
 let s:LINE_1_PLACEHOLDER = '<LINE1>'
 let s:LINE_2_PLACEHOLDER = '<LINE2>'
-let g:vim_share_link_template = 'https://www.example.com/repos/<REPOSITORY_NAME>/browse/<PATH_TO_FILE><IFLINES>#<LINE1>-<LINE2></IFLINES>'
+let s:COMMIT_REF_PLACEHOLDER = '<GIT_REF_PLACEHOLDER>'
+" let g:vim_share_link_template = 'https://www.example.com/repos/<REPOSITORY_NAME>/browse/<PATH_TO_FILE><IFLINES>#<LINE1>-<LINE2></IFLINES>'
+let s:latestCommitRef = 'origin/master'
+if exists("g:vim_share_link_latest_commit_ref")
+	let s:latestCommitRef = g:vim_share_link_latest_commit_ref
+endif
 
 function! s:getVisualSelection()
     let [lnum1, col1] = getpos("'<")[1:2]
@@ -24,6 +29,7 @@ function! s:findRepositoryRoot()
     while !foundRoot
         let pathToGit = expand(expandExpr) . "/.git"
         if isdirectory(pathToGit) || filereadable(pathToGit)
+            let workspaceInfo.pathToGit = pathToGit
             let foundRoot = 1
         elseif expand(expandExpr) == "/"
             " Recursed all the way up and found no repo
@@ -47,6 +53,9 @@ function! s:findRepositoryRoot()
         " command will print a newline after the remote origin url
         let workspaceInfo.repositoryName = get(matchlist(remoteOriginUrl, '\v([^/]+).git\W*$'), 1, "")
         let workspaceInfo.isRemoteRepository = 1
+
+		let workspaceInfo.latestCommitRef = s:latestCommitRef
+		let workspaceInfo.latestCommit = system('git --git-dir ' . pathToGit . ' rev-parse ' . s:latestCommitRef)
     endif
 
     return workspaceInfo
@@ -60,10 +69,18 @@ function! s:printDictionary(dict)
     endfor
 endfunction
 
-function! s:generateCodeBrowserBlobUrl(startLine, endLine)
+function! s:generateCodeBrowserBlobUrl(startLine, endLine, ...)
+
     let url = g:vim_share_link_template
 
     let info = s:findRepositoryRoot()
+
+    let gitRef = ""
+    if a:0 == 1 && type(a:1) == type("")
+        " If number of extra args is 1 and the first extra arg is a String
+        let gitRef = a:1
+        let commitRef = system('git --git-dir ' . info.pathToGit . ' rev-parse ' . gitRef)
+    endif
 
     if !has_key(info, 'isGitRepo')
         echohl Error
@@ -91,10 +108,20 @@ function! s:generateCodeBrowserBlobUrl(startLine, endLine)
         let lineInfo = ""
     endif
 
+	if len(gitRef)
+		" Include specific commit ref
+		let gitRefInfo = get(matchlist(url, '\v\<IF_COMMIT_REF\>(.*)\<\/IF_COMMIT_REF\>'), 1, "")
+		let gitRefInfo = substitute(gitRefInfo, s:COMMIT_REF_PLACEHOLDER, commitRef, "")
+        echo "git ref info = " . gitRefInfo
+	else
+		let gitRefInfo = ""
+	endif
+
     " Now start actually mutating the url template string
     let url = substitute(url, '\v\<IFLINES\>.*\<\/IFLINES\>', lineInfo, "")
     let url = substitute(url, s:REPOSITORY_NAME_PLACEHOLDER , info.repositoryName, "")
     let url = substitute(url, s:PATH_TO_FILE_PLACEHOLDER , info.relativePathToFile, "")
+	let url = substitute(url, '\v\<IF_COMMIT_REF\>.*\<\/IF_COMMIT_REF\>', gitRefInfo, "")
 
     echohl Special
     " call s:printDictionary(info)
@@ -102,4 +129,5 @@ function! s:generateCodeBrowserBlobUrl(startLine, endLine)
     echohl NONE
 endfunction
 
-command! -nargs=0 -range CodeBrowserBlobUrl call <SID>generateCodeBrowserBlobUrl(<line1>, <line2>)
+" 0 or 1 arguments are allowed (the git commit ref)
+command! -nargs=? -range CodeBrowserBlobUrl call <SID>generateCodeBrowserBlobUrl(<line1>, <line2>, <f-args>)
